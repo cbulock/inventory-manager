@@ -1,0 +1,20 @@
+{
+  "name": "inventory-manager-new",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxtjs/supabase": "^2.0.6",
+    "cindor-ui-core": "^0.1.11",
+    "cindor-ui-vue": "^0.1.11",
+    "nuxt": "^4.4.4",
+    "vue": "^3.5.33",
+    "vue-router": "^5.0.6"
+  }
+}
