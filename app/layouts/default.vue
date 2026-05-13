@@ -1,22 +1,17 @@
 <script setup lang="ts">
-const route = useRoute()
-const user = useSupabaseUser()
+import {
+  CindorChip,
+  CindorLayout,
+  CindorLayoutContent,
+  CindorLayoutHeader,
+} from 'cindor-ui-vue'
+
 const { signOut } = useAuthActions()
+const user = useSupabaseUser()
+const { avatarUrl, headerLabel, initials } = useCurrentUserProfile()
 
 const isSigningOut = ref(false)
 const signOutError = ref<string | null>(null)
-
-const navItems = [
-  { label: 'Dashboard', to: '/dashboard' },
-]
-
-const userLabel = computed(() => {
-  if (!user.value) {
-    return 'Signed out'
-  }
-
-  return typeof user.value.email === 'string' ? user.value.email : 'Signed in'
-})
 
 const handleSignOut = async () => {
   signOutError.value = null
@@ -35,50 +30,49 @@ const handleSignOut = async () => {
 </script>
 
 <template>
-  <div class="app-shell">
-    <header class="app-header">
-      <div class="app-brand">
-        <NuxtLink class="app-brand__title" to="/dashboard">
-          Inventory Manager
-        </NuxtLink>
-        <span class="app-brand__subtitle">
-          Shared project-centric inventory for makers
-        </span>
-      </div>
-
-      <nav class="app-nav" aria-label="Primary navigation">
-        <NuxtLink
-          v-for="item in navItems"
-          :key="item.to"
-          class="app-nav__link"
-          :class="{ 'app-nav__link--active': route.path === item.to }"
-          :to="item.to"
-        >
-          {{ item.label }}
-        </NuxtLink>
-      </nav>
-
-      <div class="app-header__actions">
-        <div class="user-pill">
-          <span>{{ userLabel }}</span>
+  <CindorLayout class="app-shell">
+    <CindorLayoutHeader class="app-header">
+      <div class="app-header__inner">
+        <div class="app-brand">
+          <NuxtLink class="app-brand__title" to="/dashboard">
+            Inventory Manager
+          </NuxtLink>
         </div>
 
-        <cindor-button
-          v-if="user"
-          :disabled="isSigningOut"
-          variant="ghost"
-          @click="handleSignOut"
-        >
-          {{ isSigningOut ? 'Signing out...' : 'Sign out' }}
-        </cindor-button>
-      </div>
-    </header>
+        <div class="app-header__actions">
+          <CindorChip tone="neutral">
+            <span class="user-chip">
+              <img
+                v-if="avatarUrl"
+                :src="avatarUrl"
+                alt=""
+                class="user-avatar"
+                referrerpolicy="no-referrer"
+              >
+              <span v-else class="user-avatar user-avatar--fallback" aria-hidden="true">
+                {{ initials }}
+              </span>
+              <span class="user-chip__label">{{ headerLabel }}</span>
+            </span>
+          </CindorChip>
 
-    <main class="page-shell page-stack">
+          <cindor-button
+            v-if="user"
+            :disabled="isSigningOut"
+            variant="ghost"
+            @click="handleSignOut"
+          >
+            {{ isSigningOut ? 'Signing out...' : 'Sign out' }}
+          </cindor-button>
+        </div>
+      </div>
+    </CindorLayoutHeader>
+
+    <CindorLayoutContent class="page-shell page-stack">
       <cindor-alert v-if="signOutError" tone="danger">
         {{ signOutError }}
       </cindor-alert>
       <slot />
-    </main>
-  </div>
+    </CindorLayoutContent>
+  </CindorLayout>
 </template>

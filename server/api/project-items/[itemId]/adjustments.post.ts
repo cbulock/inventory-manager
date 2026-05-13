@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
   const { data, error } = await supabase.rpc('adjust_project_item_quantity', {
     adjustment_note: body.note,
     adjustment_reason: body.reason,

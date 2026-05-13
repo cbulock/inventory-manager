@@ -1,18 +1,28 @@
 <script setup lang="ts">
+import {
+  CindorCard,
+  CindorDialog,
+  CindorEmptyState,
+  CindorFormField,
+  CindorInput,
+  CindorOption,
+  CindorPageHeader,
+  CindorSelect,
+  CindorStatCard,
+  CindorTextarea,
+} from 'cindor-ui-vue'
+
+type ValidatableFieldElement = HTMLElement & {
+  focus: (options?: FocusOptions) => void
+  reportValidity?: () => boolean
+}
+
 definePageMeta({
   middleware: 'auth',
 })
 
-const user = useSupabaseUser()
 const { createProject, isSupabaseConfigured, loadDashboardData } = useInventoryData()
-
-const userEmail = computed(() => {
-  if (!user.value || typeof user.value.email !== 'string') {
-    return 'maker'
-  }
-
-  return user.value.email
-})
+const { displayName } = useCurrentUserProfile()
 
 const { data, error, pending, refresh } = await useAsyncData('dashboard-data', loadDashboardData, {
   default: () => ({
@@ -29,6 +39,18 @@ const projectTypes = computed(() => dashboard.value.projectTypes)
 const projects = computed(() => dashboard.value.projects)
 const lowStockItems = computed(() => dashboard.value.lowStockItems)
 const hasSeededProjectTypes = computed(() => projectTypes.value.length > 0)
+const shouldShowMissingProjectTypesWarning = computed(() =>
+  !pending.value
+  && !error.value
+  && isSupabaseConfigured.value
+  && dashboard.value.source === 'live'
+  && !hasSeededProjectTypes.value,
+)
+const shouldShowMissingProjectTypesHelper = computed(() =>
+  !pending.value
+  && !error.value
+  && !hasSeededProjectTypes.value,
+)
 const projectTypeOptions = computed(() =>
   hasSeededProjectTypes.value
     ? projectTypes.value
@@ -46,9 +68,48 @@ const projectForm = reactive({
   projectTypeId: '',
   description: '',
 })
+const selectedProjectTypeDescription = computed(() =>
+  projectTypeOptions.value.find(option => option.id === projectForm.projectTypeId)?.description ?? null,
+)
 
 const isCreatingProject = ref(false)
+const isCreateProjectDialogOpen = ref(false)
 const createProjectError = ref<string | null>(null)
+const projectFieldErrors = reactive({
+  name: '',
+})
+const projectNameInput = ref<ValidatableFieldElement | null>(null)
+
+const focusField = async (field: ValidatableFieldElement | null) => {
+  await nextTick()
+  field?.focus()
+  field?.reportValidity?.()
+}
+
+const validateProjectForm = async () => {
+  projectFieldErrors.name = ''
+
+  if (!projectForm.name.trim()) {
+    projectFieldErrors.name = 'Enter a project name.'
+    await focusField(projectNameInput.value)
+    return false
+  }
+
+  return true
+}
+
+watch(() => projectForm.name, () => {
+  if (projectFieldErrors.name) {
+    projectFieldErrors.name = ''
+  }
+})
+
+watch(isCreateProjectDialogOpen, value => {
+  if (!value) {
+    createProjectError.value = null
+    projectFieldErrors.name = ''
+  }
+})
 
 watch(
   projectTypeOptions,
@@ -62,15 +123,21 @@ watch(
 
 const handleCreateProject = async () => {
   createProjectError.value = null
+
+  if (!await validateProjectForm()) {
+    return
+  }
+
   isCreatingProject.value = true
 
   try {
     const project = await createProject({
-      name: projectForm.name,
+      name: projectForm.name.trim(),
       projectTypeId: projectForm.projectTypeId || null,
       description: projectForm.description.trim() || null,
     })
 
+    isCreateProjectDialogOpen.value = false
     projectForm.name = ''
     projectForm.description = ''
 
@@ -88,78 +155,59 @@ const handleCreateProject = async () => {
 
 <template>
   <div class="page-stack">
-    <section class="hero-grid">
-      <div class="surface-card">
-        <div class="eyebrow">Dashboard</div>
-        <h1 class="hero-title">Welcome back, {{ userEmail }}</h1>
-        <p class="muted">
-          Track project-level inventory, catch low-stock items early, and keep suggested supplies
-          organized by project type.
-        </p>
+    <CindorPageHeader
+      description="Track project-level inventory, catch low-stock items early, and keep suggested supplies organized by project type."
+      eyebrow="Dashboard"
+      :title="`Welcome back, ${displayName}`"
+    >
+      <NuxtLink v-if="projects.length > 0" slot="actions" :to="`/projects/${projects[0].id}`">
+        <cindor-button>Open your latest project</cindor-button>
+      </NuxtLink>
+    </CindorPageHeader>
 
-        <div class="button-row">
-          <NuxtLink v-if="projects.length > 0" :to="`/projects/${projects[0].id}`">
-            <cindor-button>Open your latest project</cindor-button>
-          </NuxtLink>
-          <NuxtLink to="/login">
-            <cindor-button variant="ghost">Review auth entry point</cindor-button>
-          </NuxtLink>
-        </div>
-      </div>
+    <cindor-alert v-if="error" tone="danger">
+      {{ error.message }}
+    </cindor-alert>
 
-      <div class="surface-card">
-        <div class="section-header">
-          <h2 class="section-title">Data source</h2>
-          <cindor-badge :tone="dashboard.source === 'live' ? 'success' : 'accent'">
-            {{ dashboard.source === 'live' ? 'Live Supabase data' : 'Preview fallback' }}
-          </cindor-badge>
-        </div>
-
-        <cindor-alert v-if="error" tone="danger">
-          {{ error.message }}
-        </cindor-alert>
-
-        <cindor-alert :tone="dashboard.source === 'live' ? 'success' : 'info'">
-          {{
-            dashboard.notice
-              ?? 'The dashboard is reading from the Supabase schema and current authenticated project memberships.'
-          }}
-        </cindor-alert>
-      </div>
-    </section>
+    <cindor-alert v-else-if="dashboard.notice" tone="info">
+      {{ dashboard.notice }}
+    </cindor-alert>
 
     <section class="stats-grid">
-      <div class="surface-card surface-card--tight">
-        <div class="metric">
-          <span class="metric__value">{{ projects.length }}</span>
-          <span class="metric__label">Active projects</span>
-        </div>
-      </div>
-
-      <div class="surface-card surface-card--tight">
-        <div class="metric">
-          <span class="metric__value">{{ lowStockItems.length }}</span>
-          <span class="metric__label">Low-stock items</span>
-        </div>
-      </div>
-
-      <div class="surface-card surface-card--tight">
-        <div class="metric">
-          <span class="metric__value">{{ projectTypes.length }}</span>
-          <span class="metric__label">Built-in project types</span>
-        </div>
-      </div>
+      <CindorStatCard
+        label="Active projects"
+        tone="neutral"
+        :value="String(projects.length)"
+      />
+      <CindorStatCard
+        label="Low-stock items"
+        :tone="lowStockItems.length > 0 ? 'negative' : 'positive'"
+        :value="String(lowStockItems.length)"
+      />
+      <CindorStatCard
+        label="Built-in project types"
+        tone="neutral"
+        :value="String(projectTypes.length)"
+      />
     </section>
 
     <section class="page-stack">
-      <div class="section-header">
-        <h2 class="section-title">Projects</h2>
-        <span class="muted">Private by default, shareable with owner/editor/viewer roles</span>
-      </div>
+      <CindorPageHeader
+        description="Private by default, shareable with owner/editor/viewer roles."
+        title="Projects"
+      >
+        <cindor-button
+          slot="actions"
+          :disabled="!isSupabaseConfigured"
+          @click="isCreateProjectDialogOpen = true"
+        >
+          Create project
+        </cindor-button>
+      </CindorPageHeader>
 
-      <div v-if="pending" class="surface-card">
+      <CindorCard v-if="pending">
         <cindor-spinner />
-      </div>
+      </CindorCard>
 
       <div v-else-if="projects.length > 0" class="project-grid">
         <ProjectCard
@@ -169,32 +217,45 @@ const handleCreateProject = async () => {
         />
       </div>
 
-      <div v-else class="surface-card">
-        <div class="empty-state">
-          No projects yet. Create the first one to start tracking inventory.
+      <CindorEmptyState v-else>
+        <div>
+          <h3>No projects yet</h3>
+          <p>Create the first one to start tracking inventory.</p>
         </div>
-      </div>
+        <cindor-button
+          slot="actions"
+          :disabled="!isSupabaseConfigured"
+          @click="isCreateProjectDialogOpen = true"
+        >
+          Create project
+        </cindor-button>
+      </CindorEmptyState>
     </section>
 
-    <section class="detail-grid">
-      <div class="surface-card">
-        <div class="section-header">
-          <h2 class="section-title">Low-stock items</h2>
-          <span class="muted">Dashboard summary across projects</span>
-        </div>
+    <section class="page-stack">
+      <CindorCard>
+        <CindorPageHeader
+          description="Dashboard summary across projects."
+          title="Low-stock items"
+        />
 
         <LowStockList v-if="lowStockItems.length > 0" :items="lowStockItems" />
 
-        <div v-else class="empty-state">
-          No low-stock items yet. Threshold tracking will surface them here automatically.
-        </div>
-      </div>
+        <CindorEmptyState v-else>
+          <div>
+            <h3>No low-stock items yet</h3>
+            <p>Threshold tracking will surface them here automatically.</p>
+          </div>
+        </CindorEmptyState>
+      </CindorCard>
+    </section>
 
-      <div class="surface-card">
-        <div class="section-header">
-          <h2 class="section-title">Create a project</h2>
-          <span class="muted">Seeded project types drive built-in item suggestions</span>
-        </div>
+    <CindorDialog v-model:open="isCreateProjectDialogOpen" modal>
+      <div class="project-dialog page-stack">
+        <CindorPageHeader
+          description="Seeded project types drive built-in item suggestions."
+          title="Create a project"
+        />
 
         <cindor-alert v-if="!isSupabaseConfigured" tone="warning">
           Add your Supabase environment variables before creating live projects.
@@ -204,70 +265,70 @@ const handleCreateProject = async () => {
           {{ createProjectError }}
         </cindor-alert>
 
-        <cindor-alert
-          v-if="isSupabaseConfigured && dashboard.source === 'live' && !hasSeededProjectTypes"
-          tone="warning"
-        >
+        <cindor-alert v-if="shouldShowMissingProjectTypesWarning" tone="warning">
           No built-in project types were found in Supabase yet. You can still create a project as
           <strong>Crafting</strong>, then run the seed script later to unlock the full built-in list.
         </cindor-alert>
 
         <form class="form-grid" @submit.prevent="handleCreateProject">
-          <div class="field">
-            <label for="project-name">Project name</label>
-            <input
-              id="project-name"
+          <CindorFormField :error="projectFieldErrors.name" label="Project name" required>
+            <CindorInput
+              ref="projectNameInput"
               v-model="projectForm.name"
-              class="text-input"
+              autocomplete="off"
               maxlength="120"
+              name="project-name"
               required
-            >
-          </div>
+            />
+          </CindorFormField>
 
-          <div class="field">
-            <label for="project-type">Project type</label>
-            <select
-              id="project-type"
+          <CindorFormField
+            :description="hasSeededProjectTypes ? (selectedProjectTypeDescription ?? '') : (shouldShowMissingProjectTypesHelper ? 'The full built-in type list appears after `supabase/seed.sql` has been applied.' : '')"
+            label="Project type"
+          >
+            <CindorSelect
               v-model="projectForm.projectTypeId"
-              class="select-input"
+              autocomplete="off"
+              name="project-type"
             >
-              <option
+              <CindorOption
                 v-for="projectType in projectTypeOptions"
                 :key="projectType.id"
+                :label="projectType.label"
                 :value="projectType.id"
               >
                 {{ projectType.label }}
-              </option>
-            </select>
-            <div v-if="hasSeededProjectTypes" class="helper-text">
-              {{ projectTypeOptions.find(option => option.id === projectForm.projectTypeId)?.description }}
-            </div>
-            <div v-else class="helper-text">
-              The full built-in type list appears after `supabase/seed.sql` has been applied.
-            </div>
-          </div>
+              </CindorOption>
+            </CindorSelect>
+          </CindorFormField>
 
-          <div class="field">
-            <label for="project-description">Description</label>
-            <textarea
-              id="project-description"
+          <CindorFormField label="Description">
+            <CindorTextarea
               v-model="projectForm.description"
-              class="textarea-input"
+              autocomplete="off"
               maxlength="500"
-              placeholder="What are you organizing in this project?"
+              name="project-description"
+              placeholder="For example, spring market booth supplies…"
             />
-          </div>
+          </CindorFormField>
 
           <div class="button-row">
             <cindor-button
-              :disabled="!isSupabaseConfigured || isCreatingProject || !projectForm.name.trim()"
+              :disabled="!isSupabaseConfigured || isCreatingProject"
               type="submit"
             >
-              {{ isCreatingProject ? 'Creating project...' : 'Create project' }}
+              {{ isCreatingProject ? 'Creating project…' : 'Create project' }}
+            </cindor-button>
+            <cindor-button
+              type="button"
+              variant="ghost"
+              @click="isCreateProjectDialogOpen = false"
+            >
+              Cancel
             </cindor-button>
           </div>
         </form>
       </div>
-    </section>
+    </CindorDialog>
   </div>
 </template>

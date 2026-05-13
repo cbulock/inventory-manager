@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
   const { error } = await supabase
     .from('project_items')
     .delete()

@@ -6,6 +6,7 @@ export interface ProjectTypeOption {
 
 export type InventoryDataSource = 'live' | 'preview'
 export type ProjectMembershipRole = 'owner' | 'editor' | 'viewer'
+export type ProjectInviteStatus = 'accepted' | 'declined' | 'pending' | 'revoked'
 export type ItemAdjustmentReason = 'restock' | 'usage' | 'correction' | 'inventory_count' | 'other'
 
 export interface ProjectPreview {
@@ -71,6 +72,41 @@ export interface TagOption {
   color: string | null
 }
 
+export interface ProjectMemberPreview {
+  avatarUrl: string | null
+  email: string
+  fullName: string | null
+  joinedAtLabel: string
+  role: ProjectMembershipRole
+  userId: string
+}
+
+export interface ProjectInvitePreview {
+  email: string
+  expiresAtLabel: string
+  id: string
+  invitedAtLabel: string
+  recipientName: string | null
+  role: Exclude<ProjectMembershipRole, 'owner'>
+  status: ProjectInviteStatus
+}
+
+export interface ProjectInviteDetail {
+  email: string
+  expiresAtLabel: string
+  id: string
+  invitedAtLabel: string
+  inviterEmail: string
+  inviterName: string
+  projectId: string
+  projectName: string
+  projectSummary: string
+  projectTypeLabel: string
+  role: Exclude<ProjectMembershipRole, 'owner'>
+  status: ProjectInviteStatus
+  token: string
+}
+
 export interface ItemAdjustmentPreview {
   id: string
   itemId: string
@@ -95,6 +131,9 @@ export interface ProjectDetailData {
   notice: string | null
   availableTags: TagOption[]
   canEditProject: boolean
+  canInviteUsers: boolean
+  members: ProjectMemberPreview[]
+  pendingInvites: ProjectInvitePreview[]
   project: ProjectPreview
   items: ProjectItemPreview[]
   recentAdjustments: ItemAdjustmentPreview[]
@@ -154,4 +193,9 @@ export interface ProjectItemPhotoUploadInput {
 export interface ProjectItemPhotoDeleteInput {
   itemId: string
   storagePath: string
+}
+
+export interface ProjectInviteCreateInput {
+  email: string
+  role: Exclude<ProjectMembershipRole, 'owner'>
 }

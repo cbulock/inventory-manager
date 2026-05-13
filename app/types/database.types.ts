@@ -218,6 +218,53 @@ export interface Database {
           user_id?: string
         }
       }
+      project_invites: {
+        Row: {
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string
+          last_sent_at: string
+          project_id: string
+          responded_at: string | null
+          role: Database['public']['Enums']['project_member_role']
+          status: Database['public']['Enums']['project_invite_status']
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at?: string
+          id?: string
+          invited_by: string
+          last_sent_at?: string
+          project_id: string
+          responded_at?: string | null
+          role: Database['public']['Enums']['project_member_role']
+          status?: Database['public']['Enums']['project_invite_status']
+          token?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string
+          last_sent_at?: string
+          project_id?: string
+          responded_at?: string | null
+          role?: Database['public']['Enums']['project_member_role']
+          status?: Database['public']['Enums']['project_invite_status']
+          token?: string
+          updated_at?: string
+        }
+      }
       project_types: {
         Row: {
           created_at: string
@@ -336,6 +383,13 @@ export interface Database {
         }
         Returns: boolean
       }
+      is_project_invite_recipient: {
+        Args: {
+          invite_uuid: string
+          user_uuid?: string | null
+        }
+        Returns: boolean
+      }
       can_view_profile: {
         Args: {
           target_user_uuid: string
@@ -407,6 +461,7 @@ export interface Database {
     }
     Enums: {
       item_adjustment_reason: 'restock' | 'usage' | 'correction' | 'inventory_count' | 'other'
+      project_invite_status: 'accepted' | 'declined' | 'pending' | 'revoked'
       project_member_role: 'owner' | 'editor' | 'viewer'
     }
     CompositeTypes: Record<string, never>

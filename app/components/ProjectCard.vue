@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  CindorCard,
+  CindorDescriptionItem,
+  CindorDescriptionList,
+  CindorPageHeader,
+} from 'cindor-ui-vue'
 import type { ProjectPreview } from '~/types/inventory'
 
 defineProps<{
@@ -8,21 +14,16 @@ defineProps<{
 
 <template>
   <NuxtLink :to="`/projects/${project.id}`">
-    <div class="surface-card surface-card--tight">
-      <div class="row-between">
-        <div>
-          <div class="eyebrow">{{ project.typeLabel }}</div>
-          <h3 class="section-title">{{ project.name }}</h3>
-        </div>
-
-        <cindor-badge :tone="project.lowStockCount > 0 ? 'accent' : 'success'">
+    <CindorCard>
+      <CindorPageHeader
+        :description="project.summary"
+        :eyebrow="project.typeLabel"
+        :title="project.name"
+      >
+        <cindor-badge slot="meta" :tone="project.lowStockCount > 0 ? 'accent' : 'success'">
           {{ project.lowStockCount }} low stock
         </cindor-badge>
-      </div>
-
-      <p class="muted">
-        {{ project.summary }}
-      </p>
+      </CindorPageHeader>
 
       <div v-if="project.tags.length > 0" class="tag-list">
         <cindor-chip
@@ -34,11 +35,20 @@ defineProps<{
         </cindor-chip>
       </div>
 
-      <div class="project-card__footer">
-        <span>{{ project.itemCount }} items</span>
-        <span>{{ project.memberCount }} collaborators</span>
-        <span>{{ project.lastUpdated }}</span>
-      </div>
-    </div>
+      <CindorDescriptionList>
+        <CindorDescriptionItem>
+          <span slot="term">Items</span>
+          {{ project.itemCount }}
+        </CindorDescriptionItem>
+        <CindorDescriptionItem>
+          <span slot="term">Collaborators</span>
+          {{ project.memberCount }}
+        </CindorDescriptionItem>
+        <CindorDescriptionItem>
+          <span slot="term">Updated</span>
+          {{ project.lastUpdated }}
+        </CindorDescriptionItem>
+      </CindorDescriptionList>
+    </CindorCard>
   </NuxtLink>
 </template>

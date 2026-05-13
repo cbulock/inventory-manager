@@ -5,6 +5,8 @@ import type {
   LowStockItemPreview,
   ProjectCreateInput,
   ProjectDetailData,
+  ProjectInviteCreateInput,
+  ProjectInviteDetail,
   ProjectItemAdjustmentInput,
   ProjectItemCreateInput,
   ProjectItemPhotoDeleteInput,
@@ -54,6 +56,48 @@ function normalizeInventoryError(error: unknown) {
   return 'Live inventory data is not available yet, so preview data is being shown instead.'
 }
 
+function getInventoryUserId(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  if ('id' in value && typeof value.id === 'string' && value.id) {
+    return value.id
+  }
+
+  if ('sub' in value && typeof value.sub === 'string' && value.sub) {
+    return value.sub
+  }
+
+  return null
+}
+
+function getInventoryErrorStatusCode(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return null
+  }
+
+  if ('statusCode' in error && typeof error.statusCode === 'number') {
+    return error.statusCode
+  }
+
+  if ('status' in error && typeof error.status === 'number') {
+    return error.status
+  }
+
+  if (
+    'data' in error
+    && typeof error.data === 'object'
+    && error.data !== null
+    && 'statusCode' in error.data
+    && typeof error.data.statusCode === 'number'
+  ) {
+    return error.data.statusCode
+  }
+
+  return null
+}
+
 function assertNonNegativeNumber(value: number, label: string) {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${label} must be a non-negative number.`)
@@ -89,32 +133,42 @@ function assertValidItemPhotoFile(file: File) {
 }
 
 export function useInventoryData() {
+  const nuxtApp = useNuxtApp()
+  const route = useRoute()
   const supabase = useSupabaseClient<Database>()
-  const runtimeConfig = useRuntimeConfig()
+  const session = useSupabaseSession()
   const user = useSupabaseUser()
   const preview = useInventoryPreview()
+  const isSupabaseConfigured = useSupabaseAvailability()
 
-  const currentUserId = computed(() => {
-    if (!user.value) {
-      return null
-    }
-
-    if (typeof user.value.id === 'string' && user.value.id) {
-      return user.value.id
-    }
-
-    if ('sub' in user.value && typeof user.value.sub === 'string' && user.value.sub) {
-      return user.value.sub
-    }
-
-    return null
-  })
-
-  const isSupabaseConfigured = computed(() =>
-    Boolean(runtimeConfig.public.supabase.url && runtimeConfig.public.supabase.key),
+  const currentUserId = computed(() =>
+    getInventoryUserId(user.value) ?? getInventoryUserId(session.value?.user),
   )
 
   const canUseLiveData = computed(() => isSupabaseConfigured.value && Boolean(currentUserId.value))
+
+  const executeInventoryRequest = async <T>(request: () => Promise<T>) => {
+    try {
+      return await request()
+    }
+    catch (error) {
+      if (getInventoryErrorStatusCode(error) === 401) {
+        await nuxtApp.runWithContext(() => navigateTo({
+          path: '/login',
+          query: {
+            redirect: route.fullPath,
+          },
+        }))
+
+        throw createError({
+          statusCode: 401,
+          statusMessage: 'Please sign in to continue.',
+        })
+      }
+
+      throw error
+    }
+  }
 
   const getPreviewAvailableTags = (projectId: string): TagOption[] => {
     const itemTags = preview
@@ -169,6 +223,9 @@ export function useInventoryData() {
       notice,
       availableTags: getPreviewAvailableTags(projectId),
       canEditProject: true,
+      canInviteUsers: false,
+      members: [],
+      pendingInvites: [],
       project,
       items: preview.getProjectItemsByProjectId(projectId),
       recentAdjustments: getPreviewRecentAdjustments(projectId),
@@ -182,7 +239,7 @@ export function useInventoryData() {
         'Supabase is not configured in this environment yet, so the dashboard is using preview data.',
       )
     }
-    return await $fetch<DashboardData>('/api/dashboard')
+    return await executeInventoryRequest(() => $fetch<DashboardData>('/api/dashboard'))
   }
 
   const loadProjectData = async (projectId: string): Promise<ProjectDetailData> => {
@@ -192,7 +249,7 @@ export function useInventoryData() {
         'Supabase is not configured in this environment yet, so this project is using preview data.',
       )
     }
-    return await $fetch<ProjectDetailData>(`/api/projects/${projectId}`)
+    return await executeInventoryRequest(() => $fetch<ProjectDetailData>(`/api/projects/${projectId}`))
   }
 
   const createProject = async (input: ProjectCreateInput) => {
@@ -201,14 +258,14 @@ export function useInventoryData() {
     }
 
     assertRequiredText(input.name, 'Project name')
-    return await $fetch<{ id: string }>('/api/projects', {
+    return await executeInventoryRequest(() => $fetch<{ id: string }>('/api/projects', {
       method: 'POST',
       body: {
         description: input.description,
         name: input.name.trim(),
         projectTypeId: input.projectTypeId,
       },
-    })
+    }))
   }
 
   const createProjectItem = async (input: ProjectItemCreateInput) => {
@@ -224,10 +281,79 @@ export function useInventoryData() {
       assertNonNegativeNumber(input.cost, 'Cost')
     }
 
-    return await $fetch<string>(`/api/projects/${input.projectId}/items`, {
+    return await executeInventoryRequest(() => $fetch<string>(`/api/projects/${input.projectId}/items`, {
       method: 'POST',
       body: input,
-    })
+    }))
+  }
+
+  const inviteProjectUser = async (projectId: string, input: ProjectInviteCreateInput) => {
+    if (!canUseLiveData.value) {
+      throw new Error('Supabase must be configured before sending project invites.')
+    }
+
+    if (!projectId || !input.email.trim()) {
+      throw new Error('Project id and invite email are required.')
+    }
+
+    return await executeInventoryRequest(() => $fetch(`/api/projects/${projectId}/invites`, {
+      method: 'POST',
+      body: input,
+    }))
+  }
+
+  const revokeProjectInvite = async (inviteId: string) => {
+    if (!canUseLiveData.value) {
+      throw new Error('Supabase must be configured before revoking project invites.')
+    }
+
+    if (!inviteId) {
+      throw new Error('Select an invite to revoke.')
+    }
+
+    return await executeInventoryRequest(() => $fetch(`/api/project-invites/${inviteId}`, {
+      method: 'DELETE',
+    }))
+  }
+
+  const loadProjectInvite = async (token: string) => {
+    if (!canUseLiveData.value) {
+      throw new Error('Supabase must be configured before loading project invites.')
+    }
+
+    if (!token) {
+      throw new Error('Invite token is required.')
+    }
+
+    return await executeInventoryRequest(() => $fetch<ProjectInviteDetail>(`/api/project-invites/token/${token}`))
+  }
+
+  const acceptProjectInvite = async (token: string) => {
+    if (!canUseLiveData.value) {
+      throw new Error('Supabase must be configured before accepting project invites.')
+    }
+
+    if (!token) {
+      throw new Error('Invite token is required.')
+    }
+
+    return await executeInventoryRequest(() => $fetch<{ projectId: string }>(`/api/project-invites/token/${token}/accept`, {
+      method: 'POST',
+    }))
+  }
+
+  const declineProjectInvite = async (token: string) => {
+    if (!canUseLiveData.value) {
+      throw new Error('Supabase must be configured before declining project invites.')
+    }
+
+    if (!token) {
+      throw new Error('Invite token is required.')
+    }
+
+    return await executeInventoryRequest(() => $fetch(`/api/project-invites/token/${token}/decline`, {
+      method: 'POST',
+    }))
   }
 
   const updateProjectItem = async (input: ProjectItemUpdateInput) => {
@@ -247,10 +373,10 @@ export function useInventoryData() {
       assertNonNegativeNumber(input.cost, 'Cost')
     }
 
-    return await $fetch<string>(`/api/project-items/${input.itemId}`, {
+    return await executeInventoryRequest(() => $fetch<string>(`/api/project-items/${input.itemId}`, {
       method: 'PATCH',
       body: input,
-    })
+    }))
   }
 
   const deleteProjectItem = async (itemId: string) => {
@@ -262,9 +388,9 @@ export function useInventoryData() {
       throw new Error('Select an item to delete.')
     }
 
-    await $fetch(`/api/project-items/${itemId}`, {
+    await executeInventoryRequest(() => $fetch(`/api/project-items/${itemId}`, {
       method: 'DELETE',
-    })
+    }))
   }
 
   const adjustProjectItemQuantity = async (input: ProjectItemAdjustmentInput) => {
@@ -280,13 +406,13 @@ export function useInventoryData() {
       throw new Error('Adjustment delta must be a non-zero number.')
     }
 
-    return await $fetch<Database['public']['Tables']['project_items']['Row']>(
+    return await executeInventoryRequest(() => $fetch<Database['public']['Tables']['project_items']['Row']>(
       `/api/project-items/${input.itemId}/adjustments`,
       {
         method: 'POST',
         body: input,
       },
-    )
+    ))
   }
 
   const uploadProjectItemPhoto = async (input: ProjectItemPhotoUploadInput) => {
@@ -308,10 +434,10 @@ export function useInventoryData() {
       formData.set('existingStoragePath', input.existingStoragePath)
     }
 
-    await $fetch(`/api/project-items/${input.itemId}/photo`, {
+    await executeInventoryRequest(() => $fetch(`/api/project-items/${input.itemId}/photo`, {
       method: 'POST',
       body: formData,
-    })
+    }))
   }
 
   const deleteProjectItemPhoto = async (input: ProjectItemPhotoDeleteInput) => {
@@ -323,10 +449,10 @@ export function useInventoryData() {
       throw new Error('Select an item photo before deleting it.')
     }
 
-    await $fetch(`/api/project-items/${input.itemId}/photo`, {
+    await executeInventoryRequest(() => $fetch(`/api/project-items/${input.itemId}/photo`, {
       method: 'DELETE',
       body: input,
-    })
+    }))
   }
 
   return {
@@ -335,12 +461,17 @@ export function useInventoryData() {
     createProject,
     createProjectItem,
     currentUserId,
+    declineProjectInvite,
     deleteProjectItemPhoto,
     deleteProjectItem,
+    inviteProjectUser,
     isSupabaseConfigured,
+    loadProjectInvite,
     loadDashboardData,
     loadProjectData,
+    revokeProjectInvite,
     uploadProjectItemPhoto,
     updateProjectItem,
+    acceptProjectInvite,
   }
 }

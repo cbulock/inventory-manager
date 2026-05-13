@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const storagePath = buildItemPhotoStoragePath(projectId, itemId)
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
   const { error: uploadError } = await supabase
     .storage
     .from(itemPhotoBucketName)

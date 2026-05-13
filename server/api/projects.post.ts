@@ -1,15 +1,10 @@
+import { serverSupabaseServiceRole } from '#supabase/server'
 import type { Database } from '~/types/database.types'
 import type { ProjectCreateInput } from '~/types/inventory'
+import { requireInventoryUser } from '~~/server/utils/inventory'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-
-  if (!user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'You must be signed in to create a project.',
-    })
-  }
+  const user = await requireInventoryUser(event)
 
   const body = await readBody<ProjectCreateInput>(event)
 

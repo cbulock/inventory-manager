@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
     assertNonNegativeNumber(body.cost, 'Cost')
   }
 
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
   const { data, error } = await supabase.rpc('create_project_item_with_tags', {
     existing_tag_ids: body.existingTagIds.length > 0 ? body.existingTagIds : null,
     item_cost: body.cost,

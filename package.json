@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@nuxtjs/supabase": "^2.0.6",
-    "cindor-ui-core": "^0.1.11",
-    "cindor-ui-vue": "^0.1.11",
+    "cindor-ui-core": "^0.1.18",
+    "cindor-ui-vue": "^0.1.18",
+    "nodemailer": "^8.0.7",
     "nuxt": "^4.4.4",
     "vue": "^3.5.33",
     "vue-router": "^5.0.6"

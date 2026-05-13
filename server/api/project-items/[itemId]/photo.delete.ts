@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
   const { error: deleteMetadataError } = await supabase
     .from('item_photos')
     .delete()

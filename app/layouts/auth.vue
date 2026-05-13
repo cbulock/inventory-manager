@@ -1,7 +1,11 @@
+<script setup lang="ts">
+import { CindorCard } from 'cindor-ui-vue'
+</script>
+
 <template>
   <div class="auth-shell">
-    <div class="auth-card">
+    <CindorCard class="auth-card">
       <slot />
-    </div>
+    </CindorCard>
   </div>
 </template>

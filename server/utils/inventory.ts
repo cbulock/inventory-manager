@@ -1,10 +1,14 @@
 import type { H3Event } from 'h3'
+import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import type { JwtPayload } from '@supabase/supabase-js'
 import type { Database } from '~/types/database.types'
 import type {
   DashboardData,
   ItemAdjustmentPreview,
   LowStockItemPreview,
   ProjectDetailData,
+  ProjectInvitePreview,
+  ProjectMemberPreview,
   ProjectItemPhotoPreview,
   ProjectItemPreview,
   ProjectPreview,
@@ -41,6 +45,14 @@ function formatCurrency(cost: number | null, currencyCode: string) {
   }).format(cost)
 }
 
+function formatShortDateLabel(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(value))
+}
+
 export async function requireInventoryUser(event: H3Event) {
   const user = await serverSupabaseUser(event)
 
@@ -51,16 +63,40 @@ export async function requireInventoryUser(event: H3Event) {
     })
   }
 
-  return user
+  const userId = getInventoryUserId(user)
+
+  if (!userId) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'Your session is missing a valid user id.',
+    })
+  }
+
+  return {
+    ...user,
+    id: userId,
+  }
 }
 
-export function createInventoryClient(event: H3Event) {
-  return serverSupabaseClient<Database>(event)
+function getInventoryUserId(user: JwtPayload) {
+  if ('id' in user && typeof user.id === 'string' && user.id) {
+    return user.id
+  }
+
+  if (typeof user.sub === 'string' && user.sub) {
+    return user.sub
+  }
+
+  return null
+}
+
+export async function createInventoryClient(event: H3Event) {
+  return await serverSupabaseClient<Database>(event)
 }
 
 export async function loadDashboardDataForUser(event: H3Event): Promise<DashboardData> {
   const user = await requireInventoryUser(event)
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
 
   const [projectTypesResult, projectsResult] = await Promise.all([
     supabase
@@ -196,7 +232,7 @@ export async function loadDashboardDataForUser(event: H3Event): Promise<Dashboar
 
 export async function loadProjectDataForUser(event: H3Event, projectId: string): Promise<ProjectDetailData> {
   const user = await requireInventoryUser(event)
-  const supabase = createInventoryClient(event)
+  const supabase = await createInventoryClient(event)
 
   const projectResult = await supabase
     .from('projects')
@@ -218,14 +254,14 @@ export async function loadProjectDataForUser(event: H3Event, projectId: string):
     })
   }
 
-  const [projectTypesResult, membersResult, itemsResult, tagsResult] = await Promise.all([
+  const [projectTypesResult, membersResult, itemsResult, tagsResult, invitesResult] = await Promise.all([
     supabase
       .from('project_types')
       .select('id, label, description, sort_order')
       .order('sort_order', { ascending: true }),
     supabase
       .from('project_members')
-      .select('project_id, user_id, role')
+      .select('project_id, user_id, role, created_at')
       .eq('project_id', projectId),
     supabase
       .from('project_items')
@@ -237,6 +273,12 @@ export async function loadProjectDataForUser(event: H3Event, projectId: string):
       .select('id, name, color')
       .eq('owner_id', projectResult.data.owner_id)
       .order('name', { ascending: true }),
+    supabase
+      .from('project_invites')
+      .select('id, email, role, status, created_at, expires_at')
+      .eq('project_id', projectId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false }),
   ])
 
   if (projectTypesResult.error) {
@@ -267,10 +309,33 @@ export async function loadProjectDataForUser(event: H3Event, projectId: string):
     })
   }
 
+  if (invitesResult.error) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: invitesResult.error.message,
+    })
+  }
+
   const projectTypeLabels = new Map(
     projectTypesResult.data.map(projectType => [projectType.id, projectType.label]),
   )
   const currentUserMembership = membersResult.data.find(member => member.user_id === user.id)
+  const memberIds = [...new Set(membersResult.data.map(member => member.user_id))]
+  const memberProfilesResult = memberIds.length > 0
+    ? await supabase
+        .from('profiles')
+        .select('id, email, full_name, avatar_url')
+        .in('id', memberIds)
+    : { data: [], error: null }
+
+  if (memberProfilesResult.error) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: memberProfilesResult.error.message,
+    })
+  }
+
+  const memberProfilesById = new Map(memberProfilesResult.data.map(profile => [profile.id, profile]))
   const itemIds = itemsResult.data.map(item => item.id)
 
   let tagLinks: Database['public']['Tables']['item_tag_links']['Row'][] = []
@@ -435,6 +500,35 @@ export async function loadProjectDataForUser(event: H3Event, projectId: string):
     membershipRole: currentUserMembership?.role ?? null,
   }
 
+  const members: ProjectMemberPreview[] = membersResult.data
+    .map((member) => {
+      const profile = memberProfilesById.get(member.user_id)
+
+      if (!profile) {
+        return null
+      }
+
+      return {
+        avatarUrl: profile.avatar_url,
+        email: profile.email,
+        fullName: profile.full_name,
+        joinedAtLabel: formatShortDateLabel(member.created_at),
+        role: member.role,
+        userId: member.user_id,
+      }
+    })
+    .filter((member): member is ProjectMemberPreview => member !== null)
+
+  const pendingInvites: ProjectInvitePreview[] = invitesResult.data.map(invite => ({
+    email: invite.email,
+    expiresAtLabel: formatShortDateLabel(invite.expires_at),
+    id: invite.id,
+    invitedAtLabel: formatShortDateLabel(invite.created_at),
+    recipientName: null,
+    role: invite.role as ProjectInvitePreview['role'],
+    status: invite.status,
+  }))
+
   const suggestions: SuggestedItemPreview[] = suggestionsResult.data.map(suggestion => ({
     id: suggestion.id,
     projectTypeId: suggestion.project_type_id,
@@ -459,6 +553,9 @@ export async function loadProjectDataForUser(event: H3Event, projectId: string):
     notice: null,
     availableTags,
     canEditProject: project.membershipRole === 'owner' || project.membershipRole === 'editor',
+    canInviteUsers: project.membershipRole === 'owner',
+    members,
+    pendingInvites,
     project,
     items,
     recentAdjustments,

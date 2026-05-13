@@ -1,29 +1,54 @@
 <script setup lang="ts">
+import {
+  CindorCard,
+  CindorPageHeader,
+} from 'cindor-ui-vue'
+
 definePageMeta({
   layout: 'auth',
 })
 
+const route = useRoute()
+const supabase = useSupabaseClient()
+const session = useSupabaseSession()
 const user = useSupabaseUser()
-const runtimeConfig = useRuntimeConfig()
-const { signInWithGoogle } = useAuthActions()
+const { normalizeAuthRedirectPath, signInWithGoogle } = useAuthActions()
+const isSupabaseConfigured = useSupabaseAvailability()
 
 const isSigningIn = ref(false)
+const isCheckingSession = ref(typeof route.query.redirect === 'string')
 const authError = ref<string | null>(null)
+const redirectPath = computed(() => normalizeAuthRedirectPath(route.query.redirect))
+const shouldShowSessionCheck = computed(() => isCheckingSession.value && !authError.value)
 
-if (user.value) {
-  await navigateTo('/dashboard')
-}
+onMounted(async () => {
+  if (!isSupabaseConfigured.value) {
+    isCheckingSession.value = false
+    return
+  }
 
-const isSupabaseConfigured = computed(() =>
-  Boolean(runtimeConfig.public.supabase.url && runtimeConfig.public.supabase.key),
-)
+  const { data, error } = await supabase.auth.getSession()
+
+  if (error) {
+    authError.value = error.message
+    isCheckingSession.value = false
+    return
+  }
+
+  if (session.value ?? data.session ?? user.value) {
+    await navigateTo(redirectPath.value)
+    return
+  }
+
+  isCheckingSession.value = false
+})
 
 const handleSignIn = async () => {
   authError.value = null
   isSigningIn.value = true
 
   try {
-    await signInWithGoogle()
+    await signInWithGoogle(redirectPath.value)
   }
   catch (error) {
     authError.value = error instanceof Error ? error.message : 'Unable to start Google sign-in.'
@@ -33,13 +58,12 @@ const handleSignIn = async () => {
 </script>
 
 <template>
-  <div class="surface-card">
-    <div class="eyebrow">Inventory Manager</div>
-    <h1 class="hero-title">Shared inventory for projects and makers</h1>
-    <p class="muted">
-      Sign in with Google to manage project-specific supply counts, low-stock thresholds,
-      shared tags, and suggested items by project type.
-    </p>
+  <div class="page-stack">
+    <CindorPageHeader
+      :description="shouldShowSessionCheck ? 'Checking your saved session before showing sign-in.' : 'Sign in to continue to the inventory app.'"
+      eyebrow="Inventory Manager"
+      :title="shouldShowSessionCheck ? 'Checking your session' : 'Sign in'"
+    />
 
     <cindor-alert v-if="!isSupabaseConfigured" tone="warning">
       Supabase environment variables are not configured yet. Add the values from
@@ -50,25 +74,25 @@ const handleSignIn = async () => {
       {{ authError }}
     </cindor-alert>
 
-    <div class="surface-card surface-card--tight">
-      <div class="stack-list">
+    <CindorCard v-if="shouldShowSessionCheck">
+      <div class="session-check">
         <div class="row-between">
-          <strong>Google auth through Supabase</strong>
-          <cindor-badge tone="accent">Open sign-up</cindor-badge>
+          <strong>Checking your session…</strong>
+          <cindor-spinner />
         </div>
-        <span class="muted">
-          Any Google user can sign in and create private projects, then invite collaborators later.
-        </span>
+        <span class="helper-text">If you're already signed in, you'll be returned to the page you requested.</span>
       </div>
+    </CindorCard>
 
+    <CindorCard v-else>
       <div class="button-row">
         <cindor-button
           :disabled="!isSupabaseConfigured || isSigningIn"
           @click="handleSignIn"
         >
-          {{ isSigningIn ? 'Redirecting...' : 'Continue with Google' }}
+          {{ isSigningIn ? 'Redirecting…' : 'Continue with Google' }}
         </cindor-button>
       </div>
-    </div>
+    </CindorCard>
   </div>
 </template>
